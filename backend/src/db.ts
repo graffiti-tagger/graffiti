@@ -257,17 +257,26 @@ function parseTrackNum(tn: string | null): number {
   return parseInt(tn.split('/')[0]) || 0
 }
 
+// Split albumartist on ; not followed by a space (pseudo-standard used by many taggers).
+// "Bach;Handel" → ["Bach","Handel"]   "Bach; Handel" → ["Bach; Handel"]
+function splitArtists(albumartist: string | null, artist: string | null): string[] {
+  const raw = albumartist || artist || 'Unknown Artist'
+  const parts = raw.split(/;(?! )/).map(s => s.trim()).filter(Boolean)
+  return parts.length > 0 ? parts : ['Unknown Artist']
+}
+
 export function getLibraryTree(db: Database.Database): ArtistSummary[] {
   const rows = getAllTracks(db)
 
   const artistMap = new Map<string, Map<string, TrackRow[]>>()
   for (const row of rows) {
-    const artist = row.albumartist || row.artist || 'Unknown Artist'
-    const album  = row.album || 'Unknown Album'
-    if (!artistMap.has(artist)) artistMap.set(artist, new Map())
-    const albums = artistMap.get(artist)!
-    if (!albums.has(album)) albums.set(album, [])
-    albums.get(album)!.push(row)
+    const album = row.album || 'Unknown Album'
+    for (const artist of splitArtists(row.albumartist, row.artist)) {
+      if (!artistMap.has(artist)) artistMap.set(artist, new Map())
+      const albums = artistMap.get(artist)!
+      if (!albums.has(album)) albums.set(album, [])
+      albums.get(album)!.push(row)
+    }
   }
 
   return [...artistMap.entries()]

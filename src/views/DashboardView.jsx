@@ -4,6 +4,12 @@ import { TopNav, StatusBar } from '../components/shell.jsx'
 import FixDialog from '../components/FixDialog.jsx'
 import { useIsMobile } from '../hooks/useBreakpoint.js'
 
+function splitArtists(albumartist) {
+  if (!albumartist) return [albumartist]
+  const parts = albumartist.split(/;(?! )/).map(s => s.trim()).filter(Boolean)
+  return parts.length > 0 ? parts : [albumartist]
+}
+
 const FMT_COLOR = {
   FLAC: 'var(--green)',
   MP3:  'var(--pink)',
@@ -405,7 +411,7 @@ export default function DashboardView({ onAddMusic }) {
                 {stats.recentAlbums.map((t, i) => {
                   const year = t.date ? t.date.slice(0, 4) : null
                   return (
-                    <div key={i} style={{ flexShrink: 0, width: isMobile ? 110 : 140, cursor: 'pointer' }} onClick={() => navigate(`/tree?artist=${encodeURIComponent(t.albumartist || t.artist)}&album=${encodeURIComponent(t.album)}`)}>
+                    <div key={i} style={{ flexShrink: 0, width: isMobile ? 110 : 140, cursor: 'pointer' }} onClick={() => navigate(`/tree?artist=${encodeURIComponent(splitArtists(t.albumartist || t.artist)[0])}&album=${encodeURIComponent(t.album)}`)}>
                       <div style={{ position: 'relative' }}>
                         <ArtImg path={t.path} album={t.album} size={isMobile ? 110 : 140} style={{ border: '1.5px solid var(--line)' }} />
                       </div>
