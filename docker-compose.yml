@@ -1,0 +1,25 @@
+services:
+  graffiti:
+    image: graffititagger/graffiti-tagger:latest
+    container_name: graffiti
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Etc/UTC
+      - NODE_ENV=production
+      - PORT=3001
+      - GT_CONFIG_DIR=/config
+      - GT_DATA_DIR=/data
+    volumes:
+      - ./config:/config
+      - ./data:/data
+      - ${MUSIC_DIR:-~/Music}:/music
+    ports:
+      - 3001:3001
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3001/api/settings').then(r => process.exit(r.ok ? 0 : 1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
