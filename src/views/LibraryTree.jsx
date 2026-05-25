@@ -287,9 +287,16 @@ const LibraryTree = ({ onAddMusic }) => {
                     {r.kind === "artist" ? r.artist : r.kind === "album" ? r.album : r.title}
                   </span>
                   {r.kind === "track" && <span className="mono" style={{ color: "var(--ink-3)", fontSize: 11 }}>{r.dur}</span>}
-                  {r.kind === "album" && r.year && <Pill accent="cyan">{r.year}</Pill>}
+                  {r.kind === "album" && r.year && (
+                    <span style={{
+                      fontSize: 10, fontWeight: 700, letterSpacing: "0.04em",
+                      fontFamily: "var(--f-mono)",
+                      color: "var(--cyan)", border: "1px solid var(--cyan)",
+                      padding: "1px 6px", display: "inline-block", flexShrink: 0,
+                    }}>{r.year}</span>
+                  )}
                   {r.kind === "artist" && <span className="mono" style={{ color: "var(--ink-4)", fontSize: 11 }}>{r.albums} · {r.count}</span>}
-                  {r.kind === "album" && <span className="mono" style={{ color: "var(--ink-4)", fontSize: 11 }}>{r.count}</span>}
+                  {r.kind === "album" && <span className="mono" style={{ color: "var(--ink-4)", fontSize: 11, minWidth: "2ch", textAlign: "right" }}>{r.count}</span>}
                 </div>
               )
             })}
