@@ -37,9 +37,9 @@ export interface Config {
 }
 
 const DEFAULTS: Config = {
-  libraryPath: path.join(os.homedir(), 'Music'),
-  inboxPath: path.join(os.homedir(), 'Music', '_inbox'),
-  backupPath: path.join(os.homedir(), 'Music', '.gt-trash'),
+  libraryPath: process.env.GT_LIBRARY_PATH || path.join(os.homedir(), 'Music'),
+  inboxPath: process.env.GT_INBOX_PATH || path.join(os.homedir(), 'Music', '_inbox'),
+  backupPath: process.env.GT_BACKUP_PATH || path.join(os.homedir(), 'Music', '.gt-trash'),
   watchFolders: false,
   pathTemplate: '%albumartist%/%album% (%date%)/%tracknumber% - %title%.%extension%',
   sanitizeChars: true,

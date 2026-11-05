@@ -462,8 +462,22 @@ export default function DashboardView({ onAddMusic }) {
               <div className="panel">
                 <div className="panel-hd">
                   <span className="title">Library Health</span>
-                  <span style={{ fontFamily: 'var(--f-mono)', fontSize: 10, color: stats.unhealthyAlbums.length > 0 ? 'var(--yellow)' : 'var(--green)' }}>
-                    {stats.unhealthyAlbums.length > 0 ? `${stats.unhealthyAlbums.length} album${stats.unhealthyAlbums.length !== 1 ? 's' : ''} need attention` : 'All good'}
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{ fontFamily: 'var(--f-mono)', fontSize: 10, color: stats.unhealthyAlbums.length > 0 ? 'var(--yellow)' : 'var(--green)' }}>
+                      {stats.unhealthyAlbums.length > 0 ? `${stats.unhealthyAlbums.length} album${stats.unhealthyAlbums.length !== 1 ? 's' : ''} need attention` : 'All good'}
+                    </span>
+                    {stats.unhealthyAlbums.length > 0 && (
+                      <button
+                        className="btn primary sm"
+                        onClick={() => {
+                          const keys = new Set(stats.unhealthyAlbums.map(a => `${a.albumartist}\u0000${a.album}`))
+                          const paths = tracks
+                            .filter(t => keys.has(`${t.albumartist || t.artist}\u0000${t.album}`))
+                            .map(t => t.path).filter(Boolean)
+                          if (paths.length) setFixState({ paths, scope: 'album', albumName: `${keys.size} albums` })
+                        }}
+                      >Fix all</button>
+                    )}
                   </span>
                 </div>
                 {stats.unhealthyAlbums.length === 0 ? (

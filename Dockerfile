@@ -55,7 +55,8 @@ ENV NODE_ENV=production \
 # /config  — persisted settings (config.json)
 # /data    — persisted database (library.db)
 # /music   — bind-mount your music library here
-VOLUME ["/config", "/data", "/music"]
+# /inbox   — bind-mount your staging folder here
+VOLUME ["/config", "/data", "/music", "/inbox"]
 
 EXPOSE 3001
 

@@ -29,7 +29,7 @@ The dashboard gives you library health at a glance — incomplete metadata, susp
 - **Tag policy configuration** — mark fields as mandatory, optional, or ignored to match your standards
 - **Library browser** — tree view (artist → album → track) and grid view with cover art
 - **Library health reports** — albums with missing or suspect metadata, with suggested fixes
-- **Format support** — FLAC, MP3, M4A, OGG, WAV, AIFF, AAC, M4B
+- **Format support** — FLAC, MP3, M4A, OGG, WAV, AIFF, AAC
 - **Graffiti-inspired UI** — customizable visual intensity, accent colors, and density
 
 ---
@@ -37,10 +37,8 @@ The dashboard gives you library health at a glance — incomplete metadata, susp
 ## Requirements
 
 - [Docker](https://www.docker.com/) and Docker Compose
-- The following tools installed on the host (or inside the container):
-  - `ffmpeg` / `ffprobe` — audio analysis
-  - `fpcalc` (Chromaprint) — acoustic fingerprinting
-  - `metaflac`, `id3v2`, `vorbiscomment`, `AtomicParsley` — tag read/write per format
+
+The Docker image bundles everything it needs (`ffmpeg`/`ffprobe`, `fpcalc`, `metaflac`, `vorbiscomment`, `AtomicParsley`, `rsgain`; MP3 tags are written in Node). Nothing has to be installed on the host. Only when running outside Docker do you need those tools on your `$PATH` (or set their paths under Settings → Backend Tools).
 
 ---
 
@@ -49,17 +47,20 @@ The dashboard gives you library health at a glance — incomplete metadata, susp
 **1. Clone and configure**
 
 ```bash
-git clone https://github.com/yourusername/graffiti-tagger.git
-cd graffiti-tagger
+git clone https://github.com/poaudet/graffiti.git
+cd graffiti
 cp .env.example .env
 ```
 
-Edit `.env` to set your library path and inbox directory:
+Edit `.env` to set your library path, inbox directory and port:
 
 ```env
 MUSIC_LIBRARY_PATH=/path/to/your/music
 INBOX_PATH=/path/to/staging/folder
+PORT=3001
 ```
+
+They are mounted in the container at `/music` and `/inbox`, which are the defaults for the library and inbox paths.
 
 **2. Start the app**
 
@@ -70,7 +71,7 @@ docker compose up -d
 **3. Open the UI**
 
 ```
-http://localhost:3000
+http://localhost:3001
 ```
 
 ---
@@ -83,9 +84,9 @@ Go to the **Inbox** tab. You have three options:
 
 - **URL** — paste a direct link to an audio file, ZIP archive, or Bandcamp page and hit Download
 - **Upload** — drag and drop files or archives from your computer
-- **Server inbox** — if your server already has files staged in the configured inbox folder, browse and select them here
+- **Server inbox** — if your server already has files staged in the configured inbox folder, browse and select them here. Use **Add all** on any folder (or **Add all in this folder (recursive)**) to import every audio file beneath it, subfolders included, in one click
 
-Files are queued and processed in the background. A progress indicator shows each pipeline stage as it runs.
+Tick **Run in background** (or use **Process all in background** in the Inbox view) to hand a batch to the server: it identifies and tags, scans ReplayGain per album, and promotes to the library without the UI open. Tracks needing review stay in the inbox. Otherwise files are queued and processed interactively. A progress indicator shows each pipeline stage as it runs.
 
 ### Reviewing results
 
@@ -100,11 +101,11 @@ The **Library** tab offers two views:
 - **Tree view** — hierarchical artist → album → track browser with search, filter by format or health score
 - **Grid view** — visual album browsing with cover art
 
-Click any album to see its tags, health status, and available actions.
+Click any album to see its tags, health status, and available actions. Selecting an artist or album edits tags in bulk.
 
 ### Library health
 
-The **Dashboard** surfaces albums with incomplete or inconsistent metadata. Each flagged item shows what's wrong and offers a quick-fix action. More serious issues link through to the full review flow.
+The **Dashboard** surfaces albums with incomplete or inconsistent metadata. Each flagged item shows what's wrong and offers a quick-fix action. **Fix all** runs the fix flow across every flagged album in one batch. More serious issues link through to the full review flow.
 
 ### Settings
 
@@ -119,7 +120,7 @@ Under **Settings** you can:
 
 ## Configuration
 
-All persistent configuration lives in the `data/` volume. Tag policies, tool paths, and library settings are stored in the SQLite database and editable through the UI — no config file editing required after initial setup.
+Settings (tag policies, tool paths, library and inbox paths) are stored in `config.json` in the `/config` volume and are editable through the UI. The library index (SQLite) lives in the `/data` volume. Environment variables `GT_LIBRARY_PATH`, `GT_INBOX_PATH` and `GT_BACKUP_PATH` set the initial path defaults.
 
 ---
 
