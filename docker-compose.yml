@@ -1,6 +1,6 @@
 services:
   graffiti:
-    image: graffititagger/graffiti-tagger:latest
+    image: ghcr.io/poaudet/graffiti:latest
     container_name: graffiti
     environment:
       - TZ=Etc/UTC
