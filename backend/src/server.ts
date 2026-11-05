@@ -27,6 +27,8 @@ import { computeHealth } from './pipeline/health.js'
 import { lookupAcoustID, submitAcoustID, batchSubmitAcoustID, getSubmissionStatus, listAcoustIDsByMbid } from './pipeline/acoustid.js'
 import { ACOUSTID_APP_KEY } from './constants.js'
 import { lookupRecording, lookupReleasesText } from './pipeline/musicbrainz.js'
+import { fetchCoverArt } from './pipeline/coverart.js'
+import { startInboxWatcher } from './watcher.js'
 import multipart from '@fastify/multipart'
 
 const PORT = Number(process.env.PORT ?? 3001)
@@ -240,6 +242,20 @@ async function start() {
       return { error: `Failed for ${failed.length} track(s): ${failed[0].reason?.message ?? 'Unknown error'}` }
     }
     reply.code(204).send()
+  })
+
+  app.get<{ Querystring: { releaseId?: string; releaseGroupId?: string; size?: string } }>('/api/art/fetch', async (req, reply) => {
+    const { releaseId, releaseGroupId, size } = req.query
+    if (!releaseId && !releaseGroupId) return reply.code(400).send({ error: 'releaseId or releaseGroupId required' })
+    const sz = size === 'original' ? '' : size === '500' ? '-500' : size === '250' ? '-250' : '-1200'
+    try {
+      const cover = await fetchCoverArt({ releaseId, releaseGroupId }, sz)
+      if (!cover) return reply.code(404).send({ error: 'No cover art found' })
+      reply.header('X-Cover-Source', cover.source)
+      return reply.type(cover.mimeType).send(cover.data)
+    } catch (e) {
+      return reply.code(502).send({ error: (e as Error).message })
+    }
   })
 
   app.delete<{ Body: { trackPaths: string[] } }>('/api/art/embed', async (req, reply) => {
@@ -1548,6 +1564,12 @@ async function start() {
   setTimeout(
     () => pollAcoustIDQueue().catch(err => app.log.warn({ err: err.message }, 'acoustid-queue: startup poll error')),
     30_000
+  )
+
+  startInboxWatcher(
+    readConfig,
+    (paths, cfg) => processFiles(paths, cfg, () => {}),
+    (msg, err) => app.log.warn({ err }, msg),
   )
 
   await app.listen({ port: PORT, host: '0.0.0.0' })

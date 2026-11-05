@@ -7,6 +7,7 @@ export interface Config {
   inboxPath: string
   backupPath: string
   watchFolders: boolean
+  watchIntervalSec: number
   pathTemplate: string
   sanitizeChars: boolean
   lowercaseExtension: boolean
@@ -41,6 +42,7 @@ const DEFAULTS: Config = {
   inboxPath: process.env.GT_INBOX_PATH || path.join(os.homedir(), 'Music', '_inbox'),
   backupPath: process.env.GT_BACKUP_PATH || path.join(os.homedir(), 'Music', '.gt-trash'),
   watchFolders: false,
+  watchIntervalSec: 15,
   pathTemplate: '%albumartist%/%album% (%date%)/%tracknumber% - %title%.%extension%',
   sanitizeChars: true,
   lowercaseExtension: true,

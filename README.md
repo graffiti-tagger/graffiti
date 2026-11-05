@@ -202,6 +202,7 @@ curl -X POST -H 'Content-Type: application/json' \
 | `POST /api/library/musicbrainz/apply-from-release` `{paths, releaseId}` | Apply a release's tags |
 | `GET /api/fingerprint?path=` / `POST /api/fingerprint/batch` `{paths}` | Chromaprint fingerprints |
 | `GET /api/art?path=` / `GET /api/art/list?folder=` | Read embedded or folder cover art |
+| `GET /api/art/fetch?releaseId=&releaseGroupId=&size=` | Fetch front cover from the Cover Art Archive (release, then release group); returns the image. Embed it via `POST /api/art/embed` |
 | `POST /api/art/embed`, `DELETE /api/art/embed` `{trackPaths}` | Embed or remove cover art |
 
 ### Use case 6: Configuration and health checks
