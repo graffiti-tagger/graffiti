@@ -1,6 +1,7 @@
 import React from 'react'
 import { TopNav, StatusBar, Pill } from '../components/shell.jsx'
 import AddToInbox from '../components/AddToInbox.jsx'
+import BatchJobs, { startBatch } from '../components/BatchJobs.jsx'
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -756,6 +757,16 @@ const InboxView = () => {
     })
   }
 
+  const collectAllFiles = items => items.flatMap(e => e.type === 'dir' ? collectAllFiles(e.children ?? []) : [e.path])
+
+  const runBackground = async paths => {
+    if (!paths.length) return
+    try {
+      await startBatch(paths)
+      setSelected(new Set())
+    } catch (e) { setClusterError(e.message) }
+  }
+
   const cluster = async () => {
     const name = clusterName.trim()
     if (!name || selected.size < 2) return
@@ -821,6 +832,15 @@ const InboxView = () => {
           Auto-start
         </label>
         <button
+          className="btn sm"
+          onClick={() => runBackground(collectAllFiles(entries))}
+          disabled={totalFiles === 0}
+          title="Process every inbox file on the server: tag, ReplayGain, promote. Items needing review stay here."
+          style={{ fontSize: 11, padding: '3px 10px' }}
+        >
+          ⇒ Process all in background
+        </button>
+        <button
           className="btn primary sm"
           onClick={() => setAddOpen(true)}
           style={{ fontSize: 11, padding: '3px 10px' }}
@@ -828,6 +848,8 @@ const InboxView = () => {
           + Add Music
         </button>
       </div>
+
+      <BatchJobs onFinished={loadInbox} />
 
       <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
         {/* Left: file tree */}
@@ -883,6 +905,12 @@ const InboxView = () => {
                 >
                   {clustering ? '…' : 'Cluster'}
                 </button>
+                <button
+                  className="btn sm"
+                  onClick={() => runBackground([...selected])}
+                  title="Tag, ReplayGain and promote the selected files on the server"
+                  style={{ flex: '0 0 auto' }}
+                >Background</button>
                 <span
                   onClick={() => { setSelected(new Set()); setClusterName(''); setClusterError(null) }}
                   style={{ cursor: 'pointer', fontSize: 14, color: 'var(--ink-4)', lineHeight: 1, userSelect: 'none', flex: '0 0 auto' }}

@@ -1,6 +1,7 @@
 import React from 'react'
 import { useNavigate } from 'react-router-dom'
 import ProcessPanel from './ProcessPanel.jsx'
+import BatchJobs, { startBatch } from './BatchJobs.jsx'
 
 // ─── shared helpers ──────────────────────────────────────────────────────────
 
@@ -251,6 +252,23 @@ const ServerBrowser = ({ onFilesSelected }) => {
     }).catch(() => {})
   }, [loadDir])
 
+  // Recursive helpers use the inbox tree from /api/inbox (already walks subfolders)
+  const addRecursive = async (folderPath) => {
+    setLoading(true)
+    try {
+      const data = await fetch('/api/inbox').then(r => r.json())
+      const files = []
+      const collect = (nodes, inside) => {
+        for (const n of nodes) {
+          if (n.type === 'dir') collect(n.children ?? [], inside || n.path === folderPath)
+          else if (inside) files.push(n.path)
+        }
+      }
+      collect(data.entries ?? [], folderPath === data.inboxPath)
+      if (files.length) onFilesSelected(files)
+    } catch { /* ignore */ } finally { setLoading(false) }
+  }
+
   const toggle = (path) => setBrowserSelected(prev => {
     const next = new Set(prev)
     if (next.has(path)) next.delete(path); else next.add(path)
@@ -262,7 +280,7 @@ const ServerBrowser = ({ onFilesSelected }) => {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 8 }}>
       <div style={{ fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.5 }}>
-        Browse the server inbox folder and select files or navigate into folders.
+        Browse the server inbox folder. Select files, or use “Add all” on any folder to import everything beneath it in one click.
       </div>
 
       {/* Breadcrumbs */}
@@ -318,7 +336,14 @@ const ServerBrowser = ({ onFilesSelected }) => {
                 flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                 fontFamily: 'var(--f-mono)',
               }}>{e.name}</span>
-              {e.isDir && <span style={{ fontSize: 10, color: 'var(--ink-4)' }}>folder</span>}
+              {e.isDir && (
+                <button
+                  className="btn ghost sm"
+                  title="Add every audio file in this folder and its subfolders, and start processing"
+                  onClick={ev => { ev.stopPropagation(); addRecursive(e.path) }}
+                  style={{ padding: '1px 8px', fontSize: 10, flex: '0 0 auto' }}
+                >⇒ Add all</button>
+              )}
             </div>
           )
         })}
@@ -331,6 +356,13 @@ const ServerBrowser = ({ onFilesSelected }) => {
           onClick={() => loadDir(currentPath)}
           style={{ flex: '0 0 auto' }}
         >↻ Refresh</button>
+        <button
+          className="btn sm"
+          onClick={() => addRecursive(currentPath)}
+          disabled={!currentPath || loading}
+          title="Add every audio file under the current folder, including subfolders"
+          style={{ flex: '0 0 auto' }}
+        >⇒ Add all in this folder (recursive)</button>
         <button
           className="btn primary sm"
           onClick={() => onFilesSelected([...browserSelected])}
@@ -357,6 +389,8 @@ const AddMusicDialog = ({ onClose }) => {
   const [selected, setSelected] = React.useState(new Set())
   const [autoStart, setAutoStart] = React.useState(true)
   const [autoStartTrigger, setAutoStartTrigger] = React.useState(0)
+  const [background, setBackground] = React.useState(false)
+  const [batchError, setBatchError] = React.useState(null)
 
   // Dialog phase: true = show add form, false = show process panel
   const [showAddPanel, setShowAddPanel] = React.useState(true)
@@ -383,17 +417,24 @@ const AddMusicDialog = ({ onClose }) => {
     if (entries.length === 0 && selected.size === 0) setShowAddPanel(true)
   }, [entries.length, selected.size])
 
+  const runInBackground = React.useCallback(async (paths) => {
+    setBatchError(null)
+    try { await startBatch(paths) } catch (e) { setBatchError(e.message) }
+  }, [])
+
   const handleFilesAdded = React.useCallback(async (newFiles) => {
     await loadInbox()
+    if (background && newFiles && newFiles.length > 0) { runInBackground(newFiles); return }
     if (newFiles && newFiles.length > 0) {
       setSelected(prev => new Set([...prev, ...newFiles]))
       setShowAddPanel(false)
       if (autoStart) setAutoStartTrigger(n => n + 1)
     }
-  }, [loadInbox, autoStart])
+  }, [loadInbox, autoStart, background, runInBackground])
 
   const handleServerImport = (paths) => {
     if (paths.length === 0) return
+    if (background) { runInBackground(paths); return }
     setSelected(prev => new Set([...prev, ...paths]))
     setShowAddPanel(false)
     if (autoStart) setAutoStartTrigger(n => n + 1)
@@ -509,7 +550,21 @@ const AddMusicDialog = ({ onClose }) => {
                 />
                 Auto-process after adding
               </label>
+              <label
+                title="Identify, tag, scan ReplayGain and promote to the library on the server. Keeps running if you close this dialog; tracks needing review stay in the inbox."
+                style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--ink-3)', cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}
+              >
+                <input
+                  type="checkbox"
+                  checked={background}
+                  onChange={e => setBackground(e.target.checked)}
+                  style={{ accentColor: 'var(--cyan)' }}
+                />
+                Run in background (ReplayGain + promote automatically)
+              </label>
             </div>
+            {batchError && <div style={{ fontSize: 11, color: 'var(--pink)' }}>{batchError}</div>}
+            <BatchJobs onFinished={loadInbox} />
           </div>
         )}
 
