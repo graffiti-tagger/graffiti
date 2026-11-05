@@ -1617,6 +1617,35 @@ const ArtDialog = ({ albumObj, onClose }) => {
     finally { setOp(null) }
   }
 
+  const fetchOnline = async () => {
+    if (!firstTrackPath) return
+    setOp('fetch')
+    setError(null)
+    try {
+      const tr = await fetch(`/api/tags?path=${encodeURIComponent(firstTrackPath)}`)
+      const { tags } = await tr.json()
+      const releaseId = tags?.mb_releaseid
+      const releaseGroupId = tags?.mb_releasegroupid
+      if (!releaseId && !releaseGroupId) throw new Error('No MusicBrainz release ID on first track — tag the album first')
+      const qs = new URLSearchParams()
+      if (releaseId) qs.set('releaseId', releaseId)
+      if (releaseGroupId) qs.set('releaseGroupId', releaseGroupId)
+      const r = await fetch(`/api/art/fetch?${qs}`)
+      if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.error ?? 'No cover art found') }
+      const blob = await r.blob()
+      const dataUrl = await new Promise((resolve, reject) => {
+        const fr = new FileReader()
+        fr.onload = () => resolve(fr.result)
+        fr.onerror = () => reject(fr.error)
+        fr.readAsDataURL(blob)
+      })
+      const ext = (blob.type.split('/')[1] || 'jpeg').replace('jpeg', 'jpg')
+      setUploadFile(new File([blob], `cover.${ext}`, { type: blob.type }))
+      setUploadPreview(dataUrl)
+    } catch (e) { setError(e.message) }
+    finally { setOp(null) }
+  }
+
   const handleFileSelect = e => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -1774,6 +1803,9 @@ const ArtDialog = ({ albumObj, onClose }) => {
           {error && <span style={{ fontSize: 11, color: 'var(--pink)' }}>{error}</span>}
           <span style={{ flex: 1 }} />
           <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleFileSelect} />
+          <button className="btn" onClick={fetchOnline} disabled={!!op} title="Download cover art from MusicBrainz / Cover Art Archive">
+            {op === 'fetch' ? 'Fetching…' : 'Fetch Online'}
+          </button>
           <button className="btn" onClick={() => fileRef.current?.click()} disabled={!!op}>+ Add Image</button>
         </div>
       </div>
