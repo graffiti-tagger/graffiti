@@ -22,13 +22,14 @@ import { downloadUrlToInbox, saveUploadedFile, saveUploadedZip, type IngestEvent
 import { processFiles, hasEmbeddedArt, type ProcessEvent } from './pipeline/process.js'
 import { runReplayGain } from './pipeline/replaygain.js'
 import { promoteFiles } from './pipeline/promote.js'
-import { startBatchJob, snapshotJob, listBatchJobs, getBatchJob, dismissBatchJob } from './batch.js'
+import { startBatchJob, waitForBatchJob, snapshotJob, listBatchJobs, getBatchJob, dismissBatchJob } from './batch.js'
 import { computeHealth } from './pipeline/health.js'
 import { lookupAcoustID, submitAcoustID, batchSubmitAcoustID, getSubmissionStatus, listAcoustIDsByMbid } from './pipeline/acoustid.js'
 import { ACOUSTID_APP_KEY } from './constants.js'
 import { lookupRecording, lookupReleasesText } from './pipeline/musicbrainz.js'
 import { fetchCoverArt } from './pipeline/coverart.js'
 import { startInboxWatcher } from './watcher.js'
+import { applyPuidPgid } from './privileges.js'
 import multipart from '@fastify/multipart'
 
 const PORT = Number(process.env.PORT ?? 3001)
@@ -38,6 +39,7 @@ type RebuildResult = { added: number; skipped: number; durationMs: number } | { 
 let rebuildStatus: { running: boolean; result: RebuildResult | null } = { running: false, result: null }
 
 async function start() {
+  applyPuidPgid()
   const config = await readConfig()
   initDrivers(config.bins)
 
@@ -1568,7 +1570,10 @@ async function start() {
 
   startInboxWatcher(
     readConfig,
-    (paths, cfg) => processFiles(paths, cfg, () => {}),
+    async (paths, cfg) => {
+      const job = startBatchJob(paths, cfg, { replaygain: true, promote: !!cfg.libraryPath })
+      await waitForBatchJob(job.id)
+    },
     (msg, err) => app.log.warn({ err }, msg),
   )
 

@@ -23,6 +23,9 @@ export interface BatchJob {
 }
 
 const jobs = new Map<string, BatchJob>()
+const running = new Map<string, Promise<void>>()
+
+export const waitForBatchJob = (id: string): Promise<void> => running.get(id) ?? Promise.resolve()
 
 export const listBatchJobs = () => [...jobs.values()].sort((a, b) => b.startedAt - a.startedAt)
 export const getBatchJob = (id: string) => jobs.get(id)
@@ -46,7 +49,8 @@ export function startBatchJob(
     needsReview: [], failed: [], replaygainDone: 0, promoted: 0, startedAt: Date.now(), finishedAt: null,
   }
   jobs.set(job.id, job)
-  void run(job, paths, config, opts)
+  const p = run(job, paths, config, opts).finally(() => running.delete(job.id))
+  running.set(job.id, p)
   return job
 }
 
