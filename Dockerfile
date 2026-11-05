@@ -1,3 +1,8 @@
+# Prebuilt bases (see Dockerfile.base) hold the slow apt layers.
+# Override to build from scratch: --build-arg RUNTIME_BASE=<img> (build Dockerfile.base locally).
+ARG BUILD_BASE=ghcr.io/poaudet/graffiti-base:build
+ARG RUNTIME_BASE=ghcr.io/poaudet/graffiti-base:runtime
+
 # ── Stage 1: build frontend ─────────────────────────────────────
 FROM node:22-alpine AS frontend
 WORKDIR /app
@@ -10,11 +15,7 @@ RUN npm run build
 # ── Stage 2: build backend ──────────────────────────────────────
 # ubuntu:noble matches the production stage so native modules
 # (better-sqlite3) are compiled for the right OS/arch.
-FROM ubuntu:noble AS backend
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      nodejs npm \
-      build-essential python3 \
-    && rm -rf /var/lib/apt/lists/*
+FROM ${BUILD_BASE} AS backend
 WORKDIR /app
 COPY backend/package*.json ./
 RUN npm ci
@@ -23,19 +24,7 @@ COPY backend/src/ ./src/
 RUN npm run build
 
 # ── Stage 3: production ─────────────────────────────────────────
-FROM ubuntu:noble
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      nodejs \
-      ffmpeg \
-      flac \
-      vorbis-tools \
-      atomicparsley \
-      libchromaprint-tools \
-      rsgain \
-      curl \
-      ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+FROM ${RUNTIME_BASE}
 
 WORKDIR /app
 
