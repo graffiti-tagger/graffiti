@@ -4,6 +4,7 @@ import type { Config } from '../config.js'
 import { driverFor } from '../drivers/index.js'
 import { getDb, removeTracksByPaths } from '../db.js'
 import { rescanFile } from '../scanner.js'
+import { fixOwnership } from '../privileges.js'
 
 function applyTemplate(template: string, tags: Record<string, string | string[]>, ext: string): string {
   const get = (k: string) => {
@@ -35,7 +36,7 @@ export async function promoteFiles(
       const relPath = applyTemplate(config.pathTemplate, tags as Record<string, string | string[]>, config.lowercaseExtension ? ext : ext.toUpperCase())
       const parts = relPath.split('/').map(sanitizePart)
       const destPath = path.join(config.libraryPath, ...parts)
-      await fs.mkdir(path.dirname(destPath), { recursive: true })
+      const createdRoot = await fs.mkdir(path.dirname(destPath), { recursive: true })
       try {
         await fs.rename(filePath, destPath)
       } catch (err: unknown) {
@@ -47,6 +48,7 @@ export async function promoteFiles(
           throw err
         }
       }
+      fixOwnership(destPath, createdRoot)
       await rescanFile(destPath, driver)
       removeTracksByPaths(getDb(), [filePath])
       promoted.push(destPath)

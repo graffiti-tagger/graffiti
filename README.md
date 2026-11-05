@@ -120,7 +120,7 @@ Under **Settings** you can:
 
 ## Configuration
 
-Settings (tag policies, tool paths, library and inbox paths) are stored in `config.json` in the `/config` volume and are editable through the UI. The library index (SQLite) lives in the `/data` volume. Environment variables `GT_LIBRARY_PATH`, `GT_INBOX_PATH` and `GT_BACKUP_PATH` set the initial path defaults.
+Settings (tag policies, tool paths, library and inbox paths) are stored in `config.json` in the `/config` volume and are editable through the UI. The library index (SQLite) lives in the `/data` volume. Environment variables `GT_LIBRARY_PATH`, `GT_INBOX_PATH` and `GT_BACKUP_PATH` set the initial path defaults. `PUID`/`PGID` (and optional `UMASK`) make the app run as that user/group so files written to `/music` and `/inbox` have the right ownership for other services; `/config` and `/data` are chowned to match on start.
 
 ---
 

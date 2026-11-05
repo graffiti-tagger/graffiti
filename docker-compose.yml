@@ -4,6 +4,9 @@ services:
     container_name: graffiti
     environment:
       - TZ=Etc/UTC
+      - PUID=1000
+      - PGID=1000
+      # - UMASK=002
       - NODE_ENV=production
       - PORT=3001
       - GT_CONFIG_DIR=/config

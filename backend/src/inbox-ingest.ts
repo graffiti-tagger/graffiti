@@ -1,3 +1,4 @@
+import { fixOwnership } from './privileges.js'
 import fs from 'fs'
 import fsp from 'fs/promises'
 import path from 'path'
@@ -84,6 +85,7 @@ export async function downloadUrlToInbox(
       if (!AUDIO_EXTS.has(ext)) throw new Error(`Unsupported file type: ${ext || '(unknown)'}`)
       const dest = uniquePath(inboxPath, filename)
       await fsp.rename(tmpFile, dest)
+      fixOwnership(dest)
       const files = [dest]
       emit({ phase: 'done', files })
       return files

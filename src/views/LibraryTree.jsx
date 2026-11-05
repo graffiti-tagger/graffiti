@@ -1622,10 +1622,19 @@ const ArtDialog = ({ albumObj, onClose }) => {
     setOp('fetch')
     setError(null)
     try {
-      const tr = await fetch(`/api/tags?path=${encodeURIComponent(firstTrackPath)}`)
-      const { tags } = await tr.json()
-      const releaseId = tags?.mb_releaseid
-      const releaseGroupId = tags?.mb_releasegroupid
+      const first = v => (Array.isArray(v) ? v[0] : v) || ''
+      let releaseId = ''
+      let releaseGroupId = ''
+      // Use the first track carrying a MusicBrainz ID; the first track alone may lack one
+      for (const t of albumObj?.tracks ?? []) {
+        if (releaseId && releaseGroupId) break
+        const tr = await fetch(`/api/tags?path=${encodeURIComponent(t.path)}`)
+        if (!tr.ok) continue
+        const { tags } = await tr.json()
+        releaseId = releaseId || first(tags?.mb_releaseid)
+        releaseGroupId = releaseGroupId || first(tags?.mb_releasegroupid)
+        if (releaseId || releaseGroupId) break
+      }
       if (!releaseId && !releaseGroupId) throw new Error('No MusicBrainz release ID on first track — tag the album first')
       const qs = new URLSearchParams()
       if (releaseId) qs.set('releaseId', releaseId)
