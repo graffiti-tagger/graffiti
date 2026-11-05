@@ -124,6 +124,99 @@ Settings (tag policies, tool paths, library and inbox paths) are stored in `conf
 
 ---
 
+## HTTP API (scripting and automation)
+
+The backend is a plain JSON HTTP API under `/api/*`, the same one the UI uses, so you can drive it from `curl`, cron jobs or other tools. There is **no authentication**: only expose the port on a trusted network. Paths are paths *inside the container* (e.g. `/inbox/Album/01.flac`, `/music/...`). Errors return `{ "error": "..." }` with a 4xx/5xx status.
+
+The examples below assume `http://localhost:3001`.
+
+### Use case 1: Hands-off ingest (upload → process → promote)
+
+Fire-and-forget pipeline that survives closing the client.
+
+```bash
+# 1. Put files in the inbox (audio files or .zip, multipart) ...
+curl -F "file=@album.zip" http://localhost:3001/api/inbox/upload
+# ... or let the backend download a URL (streams progress as SSE)
+curl -N -X POST -H 'Content-Type: application/json' \
+  -d '{"url":"https://example.com/album.zip"}' http://localhost:3001/api/inbox/add-url
+
+# 2. List what is in the inbox
+curl http://localhost:3001/api/inbox
+
+# 3. Start a batch job (tag lookup, ReplayGain, promote to library) -> 202 + job
+curl -X POST -H 'Content-Type: application/json' \
+  -d '{"paths":["/inbox/Album"],"replaygain":true,"promote":true}' \
+  http://localhost:3001/api/inbox/batch
+
+# 4. Poll it until stage is "done" or "error"
+curl http://localhost:3001/api/inbox/batch/<id>
+```
+
+A job exposes `stage` (`queued`, `processing`, `replaygain`, `promoting`, `done`, `error`), `total`, `processed`, `ready`, `promoted`, `needsReview` (tracks left in the inbox for manual review) and `failed`. `GET /api/inbox/batch` lists jobs; `DELETE /api/inbox/batch/<id>` dismisses a finished one.
+
+### Use case 2: Step-by-step inbox processing
+
+Each step streams progress as Server-Sent Events (`data: {json}` lines); use `curl -N`.
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /api/inbox/process` `{paths, autoProcess?}` | Run the processing pipeline (SSE) |
+| `POST /api/inbox/apply-tags` `{path, tags}` | Write tags to an inbox file |
+| `POST /api/inbox/replaygain` `{paths}` | Compute ReplayGain |
+| `POST /api/inbox/promote` `{paths}` | Move files into the library |
+| `POST /api/inbox/cluster` `{paths, folderName}` | Group files into a folder |
+
+### Use case 3: Keep the library index and quality up to date
+
+```bash
+curl -X POST http://localhost:3001/api/library/scan        # incremental index refresh
+curl -X POST http://localhost:3001/api/library/rebuild     # full rebuild (202, async)
+curl http://localhost:3001/api/library/rebuild/status
+curl -N -X POST -H 'Content-Type: application/json' \
+  -d '{"paths":["/music/Artist/Album"]}' http://localhost:3001/api/library/fix   # re-run pipeline (SSE)
+curl -X POST http://localhost:3001/api/library/recompute-health
+curl -X POST -H 'Content-Type: application/json' \
+  -d '{"paths":["/music/Artist/Album"]}' http://localhost:3001/api/library/health-issues
+```
+
+### Use case 4: Read library data and tags (export, reporting)
+
+```bash
+curl http://localhost:3001/api/library/tracks              # every indexed track
+curl http://localhost:3001/api/library/tree                # artist → album → tracks
+curl "http://localhost:3001/api/tags?path=/music/A/B/01.flac"
+curl -X PUT -H 'Content-Type: application/json' -d '{"title":"New title"}' \
+  "http://localhost:3001/api/tags?path=/music/A/B/01.flac"
+curl -X POST -H 'Content-Type: application/json' \
+  -d '{"paths":["/music/A/B/01.flac"]}' http://localhost:3001/api/library/tag-status
+```
+
+### Use case 5: Metadata lookups and cover art
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /api/library/identify` `{paths}` | Identify tracks by AcoustID fingerprint |
+| `POST /api/library/musicbrainz/search` `{artist?, album?}` | Search MusicBrainz releases |
+| `POST /api/library/musicbrainz/release-tracklist` `{releaseId}` | Fetch a release tracklist |
+| `POST /api/library/musicbrainz/apply-from-release` `{paths, releaseId}` | Apply a release's tags |
+| `GET /api/fingerprint?path=` / `POST /api/fingerprint/batch` `{paths}` | Chromaprint fingerprints |
+| `GET /api/art?path=` / `GET /api/art/list?folder=` | Read embedded or folder cover art |
+| `POST /api/art/embed`, `DELETE /api/art/embed` `{trackPaths}` | Embed or remove cover art |
+
+### Use case 6: Configuration and health checks
+
+```bash
+curl http://localhost:3001/api/tools/status    # are ffmpeg, fpcalc, etc. available?
+curl http://localhost:3001/api/settings        # read config
+curl -X PUT -H 'Content-Type: application/json' -d @config.json http://localhost:3001/api/settings
+curl "http://localhost:3001/api/fs/ls?path=/music"   # browse folders
+```
+
+Destructive endpoints: `POST /api/library/delete`, `POST /api/library/remove-ignored-tags`, `DELETE /api/art/file`. Double-check `paths` before scripting them.
+
+---
+
 ## License
 
 MIT
