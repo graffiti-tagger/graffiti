@@ -35,4 +35,5 @@ jobs:
           target: ${{ matrix.target }}
           platforms: linux/amd64,linux/arm64
           push: true
+          provenance: false
           tags: ghcr.io/${{ github.repository_owner }}/graffiti-base:${{ matrix.target }}

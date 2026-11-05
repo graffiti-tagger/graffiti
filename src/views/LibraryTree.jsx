@@ -2,7 +2,7 @@ import React from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { TopNav, StatusBar, Pill } from '../components/shell.jsx'
 import { useIsMobile } from '../hooks/useBreakpoint.js'
-import { TAG_BY_KEY } from '../data/tags.js'
+import { TAGS, TAG_BY_KEY } from '../data/tags.js'
 import { ID3_GENRES_SORTED } from '../data/id3genres.js'
 import FixDialog from '../components/FixDialog.jsx'
 
@@ -398,7 +398,23 @@ const SelectionEditor = ({ sel, artistObj, albumObj, onDeleted, onRefreshTree })
     setAcoustidResultData(null)
   }, [sel.kind, sel.artist, sel.album, sel.n])
 
-  const fieldDefs = (FIELD_KEYS[sel.kind] ?? [])
+  const [extraKeys, setExtraKeys] = React.useState(() => {
+    try { return JSON.parse(localStorage.getItem('gt:editor:extraFields') ?? '[]') } catch { return [] }
+  })
+  const [fieldMenu, setFieldMenu] = React.useState(false)
+  const [customKey, setCustomKey] = React.useState('')
+  React.useEffect(() => { localStorage.setItem('gt:editor:extraFields', JSON.stringify(extraKeys)) }, [extraKeys])
+  const baseKeys = FIELD_KEYS[sel.kind] ?? []
+  const shownExtras = extraKeys.filter(k => !baseKeys.includes(k))
+  const toggleExtra = k => setExtraKeys(e => e.includes(k) ? e.filter(x => x !== k) : [...e, k])
+  const addCustom = () => {
+    const k = customKey.trim().toLowerCase()
+    if (k && !baseKeys.includes(k) && !extraKeys.includes(k)) setExtraKeys(e => [...e, k])
+    setCustomKey('')
+  }
+  const pickableTags = TAGS.filter(t => !t.readOnly && !baseKeys.includes(t.key) && t.key !== 'acoustid_fingerprint' && t.key !== 'lyrics')
+
+  const fieldDefs = [...baseKeys, ...shownExtras]
     .filter(k => (tagSettings[k] ?? 'optional') !== 'ignored')
     .map(k => ({ key: k, label: TAG_BY_KEY[k]?.label ?? k }))
 
@@ -421,14 +437,17 @@ const SelectionEditor = ({ sel, artistObj, albumObj, onDeleted, onRefreshTree })
         .catch(console.error)
         .finally(() => setLoading(false))
     } else {
-      const v = sel.kind === "artist"
-        ? { albumartist: sel.artist, artist: sel.artist }
-        : { album: sel.album, albumartist: sel.artist, date: albumObj?.year ?? '', genre: albumObj?.genre ?? '' }
+      const v = {
+        ...Object.fromEntries(shownExtras.map(k => [k, ''])),
+        ...(sel.kind === "artist"
+          ? { albumartist: sel.artist, artist: sel.artist }
+          : { album: sel.album, albumartist: sel.artist, date: albumObj?.year ?? '', genre: albumObj?.genre ?? '' }),
+      }
       setVals(v)
       setOrigVals(v)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sel.kind, sel.artist, sel.album, sel.n, tagsRevision])
+  }, [sel.kind, sel.artist, sel.album, sel.n, tagsRevision, shownExtras.join(',')])
 
   const changedTags = Object.fromEntries(
     Object.entries(vals).filter(([k]) => vals[k] !== origVals[k])
@@ -495,6 +514,24 @@ const SelectionEditor = ({ sel, artistObj, albumObj, onDeleted, onRefreshTree })
   }
 
   const revert = () => setVals({ ...origVals })
+
+  const refetchMusicBrainz = async () => {
+    if (affectedPaths.length === 0) return
+    setMbState({ running: true, error: null })
+    try {
+      const res = await fetch('/api/library/musicbrainz/lookup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paths: affectedPaths }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`)
+      setMbState({ running: false, error: null })
+      setMbLookupResults(data)
+    } catch (e) {
+      setMbState({ running: false, error: e.message })
+    }
+  }
 
   const selHealth = React.useMemo(() => {
     if (sel.kind === 'track') {
@@ -673,6 +710,35 @@ const SelectionEditor = ({ sel, artistObj, albumObj, onDeleted, onRefreshTree })
           <span style={{ fontSize: 12, color: "var(--ink-3)" }}>
             {loading ? "Loading tags…" : dirty ? `${Object.keys(changedTags).length} field(s) changed` : "No pending changes"}
           </span>
+          <span style={{ flex: 1 }} />
+          <div style={{ position: "relative" }}>
+            <button className="btn sm" onClick={() => setFieldMenu(m => !m)}>▦ Fields ({fieldDefs.length})</button>
+            {fieldMenu && (
+              <div style={{ position: "absolute", top: "100%", right: 0, zIndex: 10, background: "var(--bg-2)", border: "1.5px solid var(--green)", boxShadow: "4px 4px 0 var(--pink)", padding: 12, width: 240, marginTop: 4 }}>
+                <div className="label" style={{ marginBottom: 8 }}>Additional fields</div>
+                <div style={{ maxHeight: 240, overflow: "auto" }}>
+                  {pickableTags.map(t => (
+                    <label key={t.key} style={{ display: "flex", gap: 8, padding: "3px 0", fontSize: 13, cursor: "pointer" }}>
+                      <input type="checkbox" checked={extraKeys.includes(t.key)} onChange={() => toggleExtra(t.key)} style={{ accentColor: "var(--green)" }} />
+                      {t.label}
+                    </label>
+                  ))}
+                  {extraKeys.filter(k => !TAG_BY_KEY[k]).map(k => (
+                    <label key={k} style={{ display: "flex", gap: 8, padding: "3px 0", fontSize: 13, cursor: "pointer" }}>
+                      <input type="checkbox" checked onChange={() => toggleExtra(k)} style={{ accentColor: "var(--green)" }} />
+                      {k}
+                    </label>
+                  ))}
+                </div>
+                <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                  <input className="field" placeholder="custom tag name" value={customKey}
+                    onChange={e => setCustomKey(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && addCustom()} />
+                  <button className="btn sm" onClick={addCustom}>Add</button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, maxWidth: 720 }}>
@@ -757,6 +823,9 @@ const SelectionEditor = ({ sel, artistObj, albumObj, onDeleted, onRefreshTree })
           onClick={() => setDeleteOpen(true)}
         >
           Delete…
+        </button>
+        <button className="btn" onClick={refetchMusicBrainz} disabled={mbState.running || affectedPaths.length === 0} title="Look up this selection on MusicBrainz and re-apply tags">
+          {mbState.running ? "Fetching…" : "Refetch from MusicBrainz"}
         </button>
         <button className="btn" onClick={revert} disabled={!dirty || saving}>Revert</button>
         <button className="btn primary" onClick={save} disabled={!dirty || saving}>
