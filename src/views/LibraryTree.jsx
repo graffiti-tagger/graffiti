@@ -1631,8 +1631,8 @@ const ArtDialog = ({ albumObj, onClose }) => {
         const tr = await fetch(`/api/tags?path=${encodeURIComponent(t.path)}`)
         if (!tr.ok) continue
         const { tags } = await tr.json()
-        releaseId = releaseId || first(tags?.mb_releaseid)
-        releaseGroupId = releaseGroupId || first(tags?.mb_releasegroupid)
+        releaseId = releaseId || first(tags?.musicbrainz_releaseid) || first(tags?.musicbrainz_albumid) || first(tags?.mb_releaseid)
+        releaseGroupId = releaseGroupId || first(tags?.musicbrainz_releasegroupid) || first(tags?.musicbrainz_albumreleasegroupid) || first(tags?.mb_releasegroupid)
         if (releaseId || releaseGroupId) break
       }
       if (!releaseId && !releaseGroupId) throw new Error('No MusicBrainz release ID on first track — tag the album first')

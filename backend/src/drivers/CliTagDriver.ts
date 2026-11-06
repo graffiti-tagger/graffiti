@@ -408,16 +408,27 @@ export class CliTagDriver extends BaseTagDriver {
       const key = MP4_TO_KEY[match[1]]
       if (key) tags[key] = match[2].trim()
     }
+    // Freeform atoms print as: Atom "----" [com.apple.iTunes;NAME] contains: value
+    for (const line of stdout.split('\n')) {
+      const m = line.match(/Atom "----" \[[^;\]]*;([^\]]+)\] contains: (.+)/)
+      if (!m) continue
+      const key = m[1].toLowerCase()
+      if (!(key in tags)) tags[key] = m[2].trim()
+    }
     return tags
   }
 
   private async writeM4a(filePath: string, tags: TagMap): Promise<void> {
     const args: string[] = [filePath]
     for (const [key, value] of Object.entries(tags)) {
+      const val = Array.isArray(value) ? value[0] : value
       const atom = KEY_TO_MP4[key]
       const flag = atom ? ATOM_TO_FLAG[atom] : null
-      if (!flag) continue
-      args.push(flag, Array.isArray(value) ? value[0] : value)
+      if (flag) {
+        args.push(flag, val)
+      } else if (/^(musicbrainz_|acoustid_)/.test(key) && val) {
+        args.push('--rDNSatom', val, `name=${key.toUpperCase()}`, 'domain=com.apple.iTunes')
+      }
     }
     if (args.length === 1) return
     args.push('--overWrite')

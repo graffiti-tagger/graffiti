@@ -5,7 +5,8 @@ import { lookupAcoustID, type AcoustIDMatch } from './acoustid.js'
 import { ACOUSTID_APP_KEY } from '../constants.js'
 import { lookupRecording, lookupReleasesText, type MBRecording, type MBReleaseCandidate } from './musicbrainz.js'
 import { generateFingerprint } from '../fingerprint.js'
-import { extractAllFlacArt, extractAllMp3Art } from '../art.js'
+import { extractAllFlacArt, extractAllMp3Art, addEmbeddedArt } from '../art.js'
+import { fetchCoverArt } from './coverart.js'
 import { driverFor } from '../drivers/index.js'
 import { getDb, getAllTracks } from '../db.js'
 import type { Config } from '../config.js'
@@ -253,6 +254,41 @@ export async function processFiles(
         await acquireMB()
       }
 
+      // ── 6b. Write identifier tags for confident matches ─────────────
+      // Without this, files that skip manual review never get MB/AcoustID tags.
+      if (result.bestMatch && result.confidence >= config.acoustidConfidenceThreshold && !result.isDuplicate) {
+        try {
+          const rel = result.bestMatch.releases[0]
+          const ident: Record<string, string> = {
+            musicbrainz_recordingid: result.bestMatch.id,
+          }
+          const acoustidId = result.acoustidMatches[0]?.acoustidId
+          if (acoustidId) ident.acoustid_id = acoustidId
+          if (result.bestMatch.artistId) ident.musicbrainz_artistid = result.bestMatch.artistId
+          if (rel?.id) ident.musicbrainz_releaseid = rel.id
+          if (rel?.releaseGroupId) ident.musicbrainz_releasegroupid = rel.releaseGroupId
+          if (rel?.releaseTrackId) ident.musicbrainz_releasetrackid = rel.releaseTrackId
+          const driver = driverFor(filePath)
+          const existing = await driver.readTags(filePath).catch(() => ({}) as Record<string, string>)
+          const main: Record<string, string> = {}
+          const setMain = (k: string, v: string | undefined | null) => { if (v) main[k] = v }
+          setMain('title', result.bestMatch.title)
+          setMain('artist', result.bestMatch.artist)
+          setMain('albumartist', rel?.albumArtist || result.bestMatch.artist)
+          setMain('album', rel?.title)
+          setMain('date', rel?.date?.slice(0, 4))
+          setMain('tracknumber', rel?.trackNumber)
+          if (rel?.trackCount) main.tracktotal = String(rel.trackCount)
+          if (rel?.discCount && rel.discCount > 1) { main.discnumber = rel.discNumber; main.disctotal = String(rel.discCount) }
+          if (!String((existing as Record<string, unknown>).genre ?? '').trim() && result.bestMatch.genres.length) {
+            main.genre = result.bestMatch.genres.join('; ')
+          }
+          await driver.writeTags(filePath, { ...existing as Record<string, string>, ...main, ...ident })
+        } catch (e: unknown) {
+          emit({ path: filePath, step: 'musicbrainz', status: 'warn', message: `Could not write MB tags: ${(e as Error).message}` })
+        }
+      }
+
       // ── 7. Tag quality ──────────────────────────────────────────────
       emit({ path: filePath, step: 'tags', status: 'running' })
       try {
@@ -280,7 +316,17 @@ export async function processFiles(
       // ── 8. Cover art ────────────────────────────────────────────────
       emit({ path: filePath, step: 'art', status: 'running' })
       try {
-        const hasArt = await hasEmbeddedArt(filePath)
+        let hasArt = await hasEmbeddedArt(filePath)
+        if (!hasArt && result.bestMatch) {
+          const rel = result.bestMatch.releases[0]
+          try {
+            const cover = await fetchCoverArt({ releaseId: rel?.id, releaseGroupId: rel?.releaseGroupId })
+            if (cover) {
+              await addEmbeddedArt(filePath, cover.data, cover.mimeType, 3, config.bins)
+              hasArt = true
+            }
+          } catch { /* cover art is best-effort */ }
+        }
         result.artPresent = hasArt
         emit({
           path: filePath, step: 'art',

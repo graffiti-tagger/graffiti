@@ -15,6 +15,7 @@ export interface MBRelease {
   disambiguation: string | null
   releaseGroupId: string
   releaseTrackId: string
+  albumArtist: string
 }
 
 export interface MBRecording {
@@ -23,6 +24,7 @@ export interface MBRecording {
   artist: string
   artistId: string
   durationMs: number | null
+  genres: string[]
   releases: MBRelease[]
 }
 
@@ -92,7 +94,7 @@ export async function lookupRecording(
 ): Promise<MBRecording> {
   const url =
     `https://musicbrainz.org/ws/2/recording/${recordingId}` +
-    `?inc=artists+releases+artist-credits+isrcs+media+release-groups&fmt=json`
+    `?inc=artists+releases+artist-credits+isrcs+media+release-groups+genres&fmt=json`
 
   const headers: Record<string, string> = {
     'User-Agent': 'GraffitiTagger/1.0 ( https://github.com/graffiti-tagger )',
@@ -167,6 +169,9 @@ export async function lookupRecording(
       disambiguation: rel.disambiguation || null,
       releaseGroupId: rel['release-group']?.id ?? '',
       releaseTrackId,
+      albumArtist: ((rel['artist-credit'] ?? []) as any[])
+        .map((ac: any) => typeof ac === 'string' ? ac : (ac.name ?? ac.artist?.name ?? '') + (ac.joinphrase ?? ''))
+        .join(''),
     }
   })
 
@@ -176,6 +181,11 @@ export async function lookupRecording(
     artist,
     artistId,
     durationMs: data.length ?? null,
+    genres: ((data.genres ?? []) as any[])
+      .sort((a: any, b: any) => (b.count ?? 0) - (a.count ?? 0))
+      .slice(0, 3)
+      .map((g: any) => String(g.name ?? ''))
+      .filter(Boolean),
     releases,
   }
 }
