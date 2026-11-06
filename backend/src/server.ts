@@ -21,10 +21,15 @@ import { generateFingerprint, generateFingerprintsBatch } from './fingerprint.js
 import { downloadUrlToInbox, saveUploadedFile, saveUploadedZip, type IngestEvent } from './inbox-ingest.js'
 import { processFiles, hasEmbeddedArt, type ProcessEvent } from './pipeline/process.js'
 import { runReplayGain } from './pipeline/replaygain.js'
+import { promoteFiles } from './pipeline/promote.js'
+import { startBatchJob, waitForBatchJob, snapshotJob, listBatchJobs, getBatchJob, dismissBatchJob } from './batch.js'
 import { computeHealth } from './pipeline/health.js'
 import { lookupAcoustID, submitAcoustID, batchSubmitAcoustID, getSubmissionStatus, listAcoustIDsByMbid } from './pipeline/acoustid.js'
 import { ACOUSTID_APP_KEY } from './constants.js'
 import { lookupRecording, lookupReleasesText } from './pipeline/musicbrainz.js'
+import { fetchCoverArt } from './pipeline/coverart.js'
+import { startInboxWatcher } from './watcher.js'
+import { applyPuidPgid } from './privileges.js'
 import multipart from '@fastify/multipart'
 
 const PORT = Number(process.env.PORT ?? 3001)
@@ -34,6 +39,7 @@ type RebuildResult = { added: number; skipped: number; durationMs: number } | { 
 let rebuildStatus: { running: boolean; result: RebuildResult | null } = { running: false, result: null }
 
 async function start() {
+  applyPuidPgid()
   const config = await readConfig()
   initDrivers(config.bins)
 
@@ -238,6 +244,20 @@ async function start() {
       return { error: `Failed for ${failed.length} track(s): ${failed[0].reason?.message ?? 'Unknown error'}` }
     }
     reply.code(204).send()
+  })
+
+  app.get<{ Querystring: { releaseId?: string; releaseGroupId?: string; size?: string } }>('/api/art/fetch', async (req, reply) => {
+    const { releaseId, releaseGroupId, size } = req.query
+    if (!releaseId && !releaseGroupId) return reply.code(400).send({ error: 'releaseId or releaseGroupId required' })
+    const sz = size === 'original' ? '' : size === '500' ? '-500' : size === '250' ? '-250' : '-1200'
+    try {
+      const cover = await fetchCoverArt({ releaseId, releaseGroupId }, sz)
+      if (!cover) return reply.code(404).send({ error: 'No cover art found' })
+      reply.header('X-Cover-Source', cover.source)
+      return reply.type(cover.mimeType).send(cover.data)
+    } catch (e) {
+      return reply.code(502).send({ error: (e as Error).message })
+    }
   })
 
   app.delete<{ Body: { trackPaths: string[] } }>('/api/art/embed', async (req, reply) => {
@@ -1194,74 +1214,37 @@ async function start() {
     const config = await readConfig()
     if (!config.libraryPath) { reply.code(400); return { error: 'libraryPath not configured' } }
 
-    function applyTemplate(template: string, tags: Record<string, string | string[]>, ext: string): string {
-      const get = (k: string) => {
-        const v = tags[k]
-        const s = Array.isArray(v) ? (v[0] ?? '') : (v ?? '')
-        return String(s).trim()
-      }
-      return template
-        .replace(/%extension%/g, ext)
-        .replace(/%(\w+)%/g, (_, key) => get(key) || 'Unknown')
-    }
-
-    function sanitizePart(part: string): string {
-      return part.replace(/[<>:"|?*\x00-\x1f]/g, '_').replace(/^\.+|\.+$/g, '').trim() || '_'
-    }
-
-    const promoted: string[] = []
-    const errors: Array<{ path: string; error: string }> = []
-
-    for (const filePath of filePaths) {
-      try {
-        const driver = driverFor(filePath)
-        const tags = await driver.readTags(filePath)
-        const ext = path.extname(filePath).slice(1).toLowerCase()
-        const relPath = applyTemplate(config.pathTemplate, tags as Record<string, string | string[]>, config.lowercaseExtension ? ext : ext.toUpperCase())
-        const parts = relPath.split('/').map((p, i) => i === relPath.split('/').length - 1 ? sanitizePart(p) : sanitizePart(p))
-        const destPath = path.join(config.libraryPath, ...parts)
-        await fs.mkdir(path.dirname(destPath), { recursive: true })
-        try {
-          await fs.rename(filePath, destPath)
-        } catch (err: unknown) {
-          // Cross-device move: copy then delete
-          if ((err as NodeJS.ErrnoException).code === 'EXDEV') {
-            await fs.copyFile(filePath, destPath)
-            await fs.unlink(filePath)
-          } else {
-            throw err
-          }
-        }
-        await rescanFile(destPath, driver)
-        removeTracksByPaths(getDb(), [filePath])
-        promoted.push(destPath)
-      } catch (err: unknown) {
-        errors.push({ path: filePath, error: (err as Error).message })
-      }
-    }
-
-    // Remove empty inbox subdirectories left behind after promotion
-    if (config.inboxPath && promoted.length > 0) {
-      const dirsToTry = new Set<string>()
-      for (const filePath of filePaths) {
-        let dir = path.dirname(filePath)
-        while (dir !== config.inboxPath && dir.startsWith(config.inboxPath + path.sep)) {
-          dirsToTry.add(dir)
-          dir = path.dirname(dir)
-        }
-      }
-      // Deepest first so children are removed before parents
-      const sorted = [...dirsToTry].sort((a, b) => b.length - a.length)
-      for (const dir of sorted) {
-        try { await fs.rmdir(dir) } catch { /* non-empty or already gone — skip */ }
-      }
-    }
-
+    const { promoted, errors } = await promoteFiles(filePaths, config)
     if (errors.length > 0 && promoted.length === 0) {
       reply.code(500)
       return { error: errors[0].error, errors }
     }
     return { promoted, errors }
+  })
+
+  // --- Background batch jobs (process → ReplayGain → promote) ---
+
+  app.post<{ Body: { paths: string[]; replaygain?: boolean; promote?: boolean } }>('/api/inbox/batch', async (req, reply) => {
+    const { paths, replaygain = true, promote = true } = req.body
+    if (!paths?.length) { reply.code(400); return { error: 'paths required' } }
+    const config = await readConfig()
+    if (promote && !config.libraryPath) { reply.code(400); return { error: 'libraryPath not configured' } }
+    const job = startBatchJob(paths, config, { replaygain, promote })
+    reply.code(202)
+    return snapshotJob(job)
+  })
+
+  app.get('/api/inbox/batch', async () => listBatchJobs().map(snapshotJob))
+
+  app.get<{ Params: { id: string } }>('/api/inbox/batch/:id', async (req, reply) => {
+    const job = getBatchJob(req.params.id)
+    if (!job) { reply.code(404); return { error: 'job not found' } }
+    return snapshotJob(job)
+  })
+
+  app.delete<{ Params: { id: string } }>('/api/inbox/batch/:id', async (req, reply) => {
+    if (!dismissBatchJob(req.params.id)) { reply.code(409); return { error: 'job not found or still running' } }
+    reply.code(204).send()
   })
 
   // --- Fingerprints ---
@@ -1583,6 +1566,15 @@ async function start() {
   setTimeout(
     () => pollAcoustIDQueue().catch(err => app.log.warn({ err: err.message }, 'acoustid-queue: startup poll error')),
     30_000
+  )
+
+  startInboxWatcher(
+    readConfig,
+    async (paths, cfg) => {
+      const job = startBatchJob(paths, cfg, { replaygain: true, promote: !!cfg.libraryPath })
+      await waitForBatchJob(job.id)
+    },
+    (msg, err) => app.log.warn({ err }, msg),
   )
 
   await app.listen({ port: PORT, host: '0.0.0.0' })

@@ -370,8 +370,17 @@ const SettingsView = ({ onAddMusic }) => {
               <SettingRow label="Backup folder" hint="Originals copied here before any tag write.">
                 <PathField value={config.backupPath} onChange={set("backupPath")} mode="dir" />
               </SettingRow>
-              <SettingRow label="Watch folders" hint="Auto-add new files dropped here to the inbox.">
+              <SettingRow label="Watch folders" hint="Auto-process new files dropped in the inbox (including subfolders).">
                 <Toggle on={config.watchFolders} onChange={set("watchFolders")} />
+              </SettingRow>
+              <SettingRow label="Watch interval" hint="How often the inbox is checked for new files (seconds, 5–3600).">
+                <input
+                  type="number" min={5} max={3600} step={5}
+                  value={config.watchIntervalSec ?? 15}
+                  onChange={e => set("watchIntervalSec")(Math.min(3600, Math.max(5, Number(e.target.value) || 15)))}
+                  disabled={!config.watchFolders}
+                  style={{ width: 90, fontFamily: "var(--f-mono)", fontSize: 13 }}
+                />
               </SettingRow>
               <SettingRow
                 label="Rebuild library"
